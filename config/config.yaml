@@ -1,0 +1,54 @@
+# 基础配置
+base:
+  temp_dir: '.temp'
+  log_dir: 'logs'
+
+# 视频处理配置
+video:
+  supported_formats:
+    - 'video/mp4'
+    - 'video/mpeg'
+    - 'video/x-msvideo'
+    - 'video/quicktime'
+  output_format: 'mp4'
+
+# 音频处理配置
+audio:
+  sample_rate: 44100
+  channels: 2
+  format: 'wav'
+
+# 字幕配置
+subtitle:
+  font_size: 20
+  font_color: 'white'
+  background_color: 'black@0.4'
+  positions:
+    top: 'Alignment=6,MarginV=30'
+    bottom: 'Alignment=2,MarginV=30'
+
+# Azure 服务配置
+azure:
+  translator:
+    endpoint: 'https://eastasia.api.cognitive.microsoft.com/'
+    supported_languages:
+      - 'zh-CN'
+      - 'en-US'
+      - 'ja-JP'
+      - 'ko-KR'
+  speech:
+    voices:
+      zh-CN:
+        female: 'zh-CN-XiaoxiaoNeural'
+        male: 'zh-CN-YunxiNeural'
+      en-US:
+        female: 'en-US-JennyNeural'
+        male: 'en-US-GuyNeural'
+      ja-JP:
+        female: 'ja-JP-NanamiNeural'
+        male: 'ja-JP-KeitaNeural'
+    styles:
+      - 'normal'
+      - 'cheerful'
+      - 'sad'
+      - 'angry' 

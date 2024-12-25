@@ -1,0 +1,31 @@
+[build-system]
+requires = [
+    "setuptools>=42",
+    "wheel",
+    "setuptools-rust>=0.12.1",
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "video-processor"
+version = "0.1.0"
+description = "智能视频处理系统"
+requires-python = ">=3.8,<3.12"
+dependencies = [
+    "python-dotenv>=0.19.0",
+    "pyyaml>=5.4.1",
+    "ffmpeg-python>=0.2.0",
+    "python-magic>=0.4.24",
+    "pydub>=0.25.1",
+    "openai-whisper>=1.0.0",
+    "azure-cognitiveservices-speech>=1.19.0",
+    "requests>=2.26.0",
+    "srt>=3.5.0",
+    "tqdm>=4.62.3",
+]
+
+[project.scripts]
+video-processor = "videoprocessor.cli:main"
+
+[tool.setuptools]
+packages = ["videoprocessor"] 

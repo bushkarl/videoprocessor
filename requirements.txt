@@ -1,0 +1,23 @@
+# 基础依赖
+python-dotenv
+requests>=2.31.0
+
+# 视频处理
+ffmpeg-python>=0.2.0
+numpy>=1.24.3
+
+# 音频处理
+pydub>=0.25.1
+
+# 语音识别
+openai-whisper>=20231117
+
+# Azure 服务
+edge-tts>=6.1.9
+
+# 字幕处理
+srt>=3.5.3
+
+# 翻译服务
+googletrans==4.0.0-rc1
+translate>=3.6.1 

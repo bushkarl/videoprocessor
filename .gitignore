@@ -1,0 +1,63 @@
+# 环境变量
+.env
+venv
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# 虚拟环境
+venv/
+ENV/
+
+# 日志
+logs/
+*.log
+
+# 临时文件
+.temp/ 
+# Eclipse
+.metadata/
+.recommenders/
+RemoteSystemsTempFiles/
+Servers/
+**/target/
+**/.DS_Store
+**/.settings
+**/.classpath
+**/.project
+**/.externalToolBuilders
+**/.pmd
+**/.checkstyle
+**/*.bpmn2d
+**/webapp/WEB-INF/
+settings.xml
+**.versionsBackup
+
+# idea
+.idea/
+**/*.iml
+
+# Others
+node_modules/
+**/MANIFEST.MF
+**/.DS_Store
