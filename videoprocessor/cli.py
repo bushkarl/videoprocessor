@@ -24,10 +24,12 @@ def get_output_path(input_path: str, step: str) -> str:
 
 def main():
     parser = argparse.ArgumentParser(description='视频处理工具')
+    
+    # 输入输出参数
     parser.add_argument('input', help='输入视频文件路径')
     parser.add_argument('-o', '--output', help='输出视频文件路径')
     
-    # 添加步骤选项
+    # 处理步骤选项
     parser.add_argument('--steps', nargs='+', choices=[
         'extract_audio',    # 提取音频
         'generate_srt',     # 生成字幕
@@ -38,23 +40,30 @@ def main():
         'all'              # 执行所有步骤
     ], default=['all'], help='指定要执行的步骤')
     
-    # 添加其他选项
+    # 其他选项
     parser.add_argument('--remove-subs', action='store_true', help='移除原始字幕（默认保留）')
     parser.add_argument('--keep-temp', action='store_true', help='保留中间文件（默认删除）')
     
+    # 解析命令行参数
     args = parser.parse_args()
     
     try:
         # 验证输入文件存在
         if not os.path.exists(args.input):
             raise FileNotFoundError(f"输入文件不存在: {args.input}")
+            
+        # 如果没有指定输出路径，使用默认命名
+        if not args.output:
+            basename = os.path.splitext(args.input)[0]
+            args.output = f"{basename}_output.mp4"
         
+        # 创建处理器实例
         processor = VideoProcessor()
         processor.remove_original_subs = args.remove_subs
         processor.keep_temp_files = args.keep_temp
         
         # 设置输出路径
-        final_output = args.output or get_output_path(args.input, 'compose')
+        final_output = args.output
         
         if 'all' in args.steps:
             # 执行完整流程
@@ -140,7 +149,7 @@ def main():
                     args.input,
                     no_subs_path
                 )
-                logger.info(f"字幕移除完成: {results['no_subs_video']}")
+                logger.info(f"字幕���除完成: {results['no_subs_video']}")
             
             if 'compose' in args.steps:
                 if 'dubbed_audio' not in results or 'translated_srt' not in results:

@@ -34,19 +34,31 @@ class VideoProcessor:
         self.remove_original_subs = False  # 默认不移除原字幕
     
     def process(self, input_path: str, output_path: str) -> str:
-        """处理视频"""
+        """
+        处理视频
+        
+        Args:
+            input_path: 输入视频路径
+            output_path: 输出视频路径
+        
+        Returns:
+            str: 处理后的视频路径
+        """
         try:
-            # 创建临时目录
-            temp_dir = os.path.join(os.path.dirname(output_path), '.temp')
-            os.makedirs(temp_dir, exist_ok=True)
+            # 验证输入文件
+            if not input_path or not os.path.exists(input_path):
+                raise FileNotFoundError(f"输入视频文件不存在: {input_path}")
+            
+            # 确保输出目录存在
+            output_dir = os.path.dirname(os.path.abspath(output_path))
+            os.makedirs(output_dir, exist_ok=True)
             
             # 1. 提取音频
-            audio_path = os.path.join(temp_dir, "extracted_audio.wav")
             audio_path = self.audio_extractor.extract(input_path)
             logger.info("提取音频完成")
             
             # 2. 生成原始字幕
-            original_subtitle_path = os.path.join(temp_dir, "original_subtitles.srt")
+            original_subtitle_path = os.path.join(self.temp_dir, "original_subtitles.srt")
             original_subtitle_path = self.subtitle_generator.generate(
                 audio_path,
                 original_subtitle_path
@@ -69,7 +81,7 @@ class VideoProcessor:
             logger.info("翻译完成")
             
             # 5. 将翻译后的文本填充回字幕
-            translated_subtitle_path = os.path.join(temp_dir, "translated_subtitles.srt")
+            translated_subtitle_path = os.path.join(self.temp_dir, "translated_subtitles.srt")
             translated_subtitle_path = self.subtitle_processor.fill_subtitles(
                 original_subs,
                 translated_text,
@@ -78,7 +90,7 @@ class VideoProcessor:
             logger.info("生成翻译字幕完成")
             
             # 6. 生成配音
-            dubbed_audio_path = os.path.join(temp_dir, "dubbed_audio.wav")
+            dubbed_audio_path = os.path.join(self.temp_dir, "dubbed_audio.wav")
             dubbed_audio_path = self.tts_service.synthesize(
                 translated_subtitle_path,
                 target_language='zh-cn',
@@ -104,16 +116,16 @@ class VideoProcessor:
         finally:
             # 清理临时文件
             try:
-                if os.path.exists(temp_dir):
-                    for file in os.listdir(temp_dir):
+                if os.path.exists(self.temp_dir):
+                    for file in os.listdir(self.temp_dir):
                         try:
-                            file_path = os.path.join(temp_dir, file)
+                            file_path = os.path.join(self.temp_dir, file)
                             if os.path.isfile(file_path):
                                 os.remove(file_path)
                         except Exception as e:
                             logger.warning(f"清理临时文件失败: {file_path} - {str(e)}")
                     try:
-                        os.rmdir(temp_dir)
+                        os.rmdir(self.temp_dir)
                     except Exception as e:
                         logger.warning(f"清理临时目录失败: {str(e)}")
             except Exception as e:

@@ -19,14 +19,18 @@ class AudioExtractor:
             str: 提取的音频文件路径
         """
         try:
+            # 验证输入文件
+            if not video_path or not os.path.exists(video_path):
+                raise FileNotFoundError(f"输入视频文件不存在: {video_path}")
+            
             # 如果没有提供输出路径，则自动生成
-            if output_path is None:
+            if not output_path:
                 dirname = os.path.dirname(video_path)
                 basename = os.path.splitext(os.path.basename(video_path))[0]
                 output_path = os.path.join(dirname, f"{basename}_audio.wav")
             
             # 确保输出目录存在
-            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+            os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
             
             # 构建 FFmpeg 命令
             command = [
