@@ -15,7 +15,7 @@ class TranslationService:
         """初始化翻译服务"""
         self.max_retries = 3
         self.retry_delay = 2  # 秒
-        self.batch_size = 5  # 每次翻译5批
+        self.batch_size = 10  # 每次翻译5批
         self.request_interval = 1.5  # 请求间隔加大到1.5秒
         
         # 语言代码映射

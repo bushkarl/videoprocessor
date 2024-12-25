@@ -1,13 +1,13 @@
 import os
 import srt
+import asyncio
 from datetime import timedelta
 from edge_tts import Communicate
-import asyncio
 from pydub import AudioSegment
 import soundfile as sf
 import io
+from concurrent.futures import ThreadPoolExecutor
 from .utils.logger import setup_logger
-import subprocess
 
 logger = setup_logger(__name__)
 
@@ -26,9 +26,13 @@ class TextToSpeechService:
         self.sample_rate = 44100
         self.channels = 2
         # 语速控制参数
-        self.min_speed = -5  # 最大减速比例
-        self.max_speed = 25   # 最大加速比例
+        self.min_speed = 0  # 最大减速比例
+        self.max_speed = 35   # 最大加速比例
         self.speed_adjust_factor = 0.9  # 语速调整系数，降低调整幅度
+        
+        # 并发控制参数
+        self.max_workers = 5  # 最大并发数
+        self.chunk_size = 10  # 每批处理的字幕数
     
     def _calculate_rate(self, text: str, duration: timedelta) -> str:
         """根据字幕时间计算语速"""
@@ -93,7 +97,7 @@ class TextToSpeechService:
             
             # 对较大的语速调整进行分段处理
             if abs(rate_value) > 20:
-                # 第一步：使用温和的语速调整
+                # 第一步：使用温和���语速调整
                 base_rate = f"{int(rate_value * 0.7):+d}%"
                 communicate = Communicate(text, voice, rate=base_rate)
                 
@@ -185,53 +189,57 @@ class TextToSpeechService:
             logger.error(f"音频合并失败: {str(e)}")
             raise
     
-    def _synthesize_subtitle(self, text: str, rate: str, output_path: str) -> str:
-        """合成单条字幕的语音"""
-        try:
-            # 如果文本为空，生成静音片段
-            if not text or not text.strip():
-                logger.info("空字幕，生成静音片段")
-                return self._generate_silence(output_path)
+    async def _generate_audio_chunk(self, subtitles: list, temp_dir: str) -> list:
+        """并发生成一组音频"""
+        tasks = []
+        for i, subtitle in enumerate(subtitles):
+            if not subtitle.content.strip():
+                continue
                 
-            # 计算这段文本需要的语速
-            rate = self._calculate_rate(text, timedelta(seconds=len(text) / 4))
-            logger.info(f"字幕 语速调整: {rate}")
+            temp_path = os.path.join(temp_dir, f"temp_{subtitle.index}.wav")
+            rate = self._calculate_rate(subtitle.content, subtitle.end - subtitle.start)
             
-            # 生成音频
-            asyncio.run(self._generate_audio(text, rate, output_path))
-            
-            logger.info(f"音频片段生成成功: {output_path}")
-            
-            return output_path
-            
-        except Exception as e:
-            logger.error(f"字幕合成失败: {str(e)}")
-            raise
+            task = asyncio.create_task(self._generate_audio(
+                subtitle.content,
+                rate,
+                temp_path
+            ))
+            tasks.append((subtitle, temp_path, task))
+        
+        results = []
+        for subtitle, temp_path, task in tasks:
+            try:
+                await task
+                results.append({
+                    'path': temp_path,
+                    'start_time': subtitle.start,
+                    'end_time': subtitle.end
+                })
+                logger.info(f"音频片段生成成功: {temp_path}")
+            except Exception as e:
+                logger.error(f"生成音频片段失败: {str(e)}")
+                if not getattr(self, 'ignore_errors', False):
+                    raise
+        
+        return results
     
-    def _generate_silence(self, output_path: str) -> str:
-        """生成静音音频片段"""
-        try:
-            command = [
-                'ffmpeg',
-                '-f', 'lavfi',           # 使用 lavfi 输入
-                '-i', 'anullsrc=r=44100:cl=stereo',  # 生成静音
-                '-t', '0.5',             # 持续时间（秒）
-                '-acodec', 'pcm_s16le',  # 音频编码
-                '-y',                    # 覆盖已存在的文件
-                output_path
-            ]
+    async def _process_subtitles(self, subs: list, temp_dir: str) -> list:
+        """分批处理字幕"""
+        all_segments = []
+        total_subs = len(subs)
+        
+        for i in range(0, total_subs, self.chunk_size):
+            chunk = subs[i:i + self.chunk_size]
+            logger.info(f"处理字幕批次 {i+1}-{min(i+self.chunk_size, total_subs)}/{total_subs}")
             
-            result = subprocess.run(command, capture_output=True, text=True)
+            # 并发生成这一批的音频
+            segments = await self._generate_audio_chunk(chunk, temp_dir)
+            all_segments.extend(segments)
             
-            if result.returncode != 0:
-                logger.error(f"静音生成失败: {result.stderr}")
-                raise Exception(f"静音生成失败: {result.stderr}")
-            
-            return output_path
-            
-        except Exception as e:
-            logger.error(f"静音生成失败: {str(e)}")
-            raise
+            # 简单的速率限制
+            await asyncio.sleep(0.5)
+        
+        return all_segments
     
     def synthesize(self, srt_path: str, target_language: str = 'zh-cn', output_path: str = None) -> str:
         """将字幕文件转换为语音"""
@@ -246,37 +254,8 @@ class TextToSpeechService:
             temp_dir = "temp_audio"
             os.makedirs(temp_dir, exist_ok=True)
             
-            # 存储所有音频片段的信息
-            audio_segments = []
-            
-            # 处理每条字幕
-            for i, subtitle in enumerate(subs, 1):
-                try:
-                    # 跳过空字幕
-                    if not subtitle.content or not subtitle.content.strip():
-                        logger.info(f"跳过空字幕 {i}/{len(subs)}")
-                        continue
-                        
-                    temp_path = os.path.join(temp_dir, f"temp_{i}.wav")
-                    
-                    # 计算这段文本需要的语速
-                    rate = self._calculate_rate(subtitle.content, subtitle.end - subtitle.start)
-                    logger.info(f"字幕 {i}/{len(subs)} 语速调整: {rate}")
-                    
-                    # 生成音频
-                    self._synthesize_subtitle(subtitle.content, rate, temp_path)
-                    
-                    # 记录音频片段信息
-                    audio_segments.append({
-                        'path': temp_path,
-                        'start_time': subtitle.start,
-                        'end_time': subtitle.end
-                    })
-                    
-                except Exception as e:
-                    logger.error(f"处理字幕 {i}/{len(subs)} 失败: {str(e)}")
-                    if not self.ignore_errors:
-                        raise
+            # 使用事件循环处理所有字幕
+            audio_segments = asyncio.run(self._process_subtitles(subs, temp_dir))
             
             # 合并所有音频片段
             self._merge_audio_files(audio_segments, output_path)
@@ -291,5 +270,11 @@ class TextToSpeechService:
             # 清理临时文件
             if os.path.exists(temp_dir):
                 for file in os.listdir(temp_dir):
-                    os.remove(os.path.join(temp_dir, file))
-                os.rmdir(temp_dir) 
+                    try:
+                        os.remove(os.path.join(temp_dir, file))
+                    except Exception as e:
+                        logger.warning(f"清理临时文件失败: {str(e)}")
+                try:
+                    os.rmdir(temp_dir)
+                except Exception as e:
+                    logger.warning(f"清理临时目录失败: {str(e)}") 
