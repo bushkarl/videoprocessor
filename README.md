@@ -46,7 +46,7 @@
 ### 安装步骤
 ```bash
 # 1. 克隆项目
-git clone https://github.com/yourusername/video-processor.git
+git clone https://github.com/bushkarl/video-processor.git
 cd video-processor
 
 # 2. 创建虚拟环境
