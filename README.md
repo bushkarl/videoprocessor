@@ -50,16 +50,16 @@ git clone https://github.com/bushkarl/video-processor.git
 cd video-processor
 
 # 2. 创建虚拟环境
-python -m venv venv
+python3 -m venv venv
 source venv/bin/activate  # Linux/Mac
 venv\Scripts\activate     # Windows
 
 # 3. 安装依赖
-pip install -r requirements.txt
+pip3 install -r requirements.txt
 
 # 4. 配置环境变量
-export AZURE_TRANSLATOR_KEY=your_key_here    # Linux/Mac
-set AZURE_TRANSLATOR_KEY=your_key_here       # Windows
+brew install ffmpeg    # Linux/Mac
+choco install ffmpeg   # Windows
 ```
 
 ## 使用方法
@@ -112,6 +112,39 @@ set AZURE_TRANSLATOR_KEY=your_key_here       # Windows
 - `-o, --output`: 指定输出文件路径
 - `--remove-subs`: 移除原始字幕
 - `--keep-temp`: 保留中间文件
+- `--voice`: 指定语音 (例如: xiaoxiao, yunxi, jenny 等)
+- `--speed`: 视频速度因子 (0.5-2.0, 默认1.0)
+- `--save-srt`: 保存原始和翻译后的字幕文件
+
+### 可用语音选项
+- 中文女声：
+  - xiaoxiao: 晓晓（默认）
+  - xiaoyi: 晓伊
+  - xiaoxuan: 晓萱
+  - xiaozhen: 晓甄
+- 中文男声：
+  - yunxi: 云希
+  - yunxia: 云夏
+  - yunyang: 云扬
+- 英文语音：
+  - jenny: Jenny (女声)
+  - aria: Aria (女声)
+  - guy: Guy (男声)
+- 日语语音：
+  - nanami: Nanami (女声)
+  - keita: Keita (男声)
+- 韩语语音：
+  - sunhi: SunHi (女声)
+  - inpyo: InPyo (男声)
+
+使用示例：
+```bash
+# 使用云希语音
+./run.sh input.mp4 --voice yunxi
+
+# 使用晓伊语音
+./run.sh input.mp4 --voice xiaoyi
+```
 
 ## 注意事项
 1. 确保已正确安装 FFmpeg

@@ -15,24 +15,94 @@ class TextToSpeechService:
     """文本转语音服务"""
     
     def __init__(self):
+        # 支持的语音列表
         self.voice_map = {
+            'zh': {
+                'xiaoxiao': 'zh-CN-XiaoxiaoNeural',  # 晓晓 - 女声
+                'xiaoyi': 'zh-CN-XiaoyiNeural',      # 晓伊 - 女声
+                'xiaoxuan': 'zh-CN-XiaoxuanNeural',  # 晓萱 - 女声
+                'xiaozhen': 'zh-CN-XiaozhenNeural',  # 晓甄 - 女声
+                'yunxi': 'zh-CN-YunxiNeural',        # 云希 - 男声
+                'yunxia': 'zh-CN-YunxiaNeural',      # 云夏 - 男声
+                'yunyang': 'zh-CN-YunyangNeural',    # 云扬 - 男声
+            },
+            'en': {
+                'jenny': 'en-US-JennyNeural',        # Jenny - 女声
+                'aria': 'en-US-AriaNeural',          # Aria - 女声
+                'guy': 'en-US-GuyNeural',            # Guy - 男声
+            },
+            'ja': {
+                'nanami': 'ja-JP-NanamiNeural',      # Nanami - 女声
+                'keita': 'ja-JP-KeitaNeural',        # Keita - 男声
+            },
+            'ko': {
+                'sunhi': 'ko-KR-SunHiNeural',        # SunHi - 女声
+                'inpyo': 'ko-KR-InPyoNeural',        # InPyo - 男声
+            }
+        }
+        
+        # 默认语音
+        self.default_voices = {
             'zh': 'zh-CN-XiaoxiaoNeural',
             'zh-cn': 'zh-CN-XiaoxiaoNeural',
             'en': 'en-US-JennyNeural',
             'ja': 'ja-JP-NanamiNeural',
             'ko': 'ko-KR-SunHiNeural'
         }
+        
         # 音频参数
         self.sample_rate = 44100
         self.channels = 2
         # 语速控制参数
-        self.min_speed = 0  # 最大减速比例
-        self.max_speed = 35   # 最大加速比例
-        self.speed_adjust_factor = 0.9  # 语速调整系数，降低调整幅度
+        self.min_speed = 0  # 最小语速
+        self.max_speed = 20  # 最大语速
+        self.speed_adjust_factor = 0.9  # 语速调整系数
+        self.max_speed_diff = 10  # 相邻字幕最大语速差异（百分比）
         
         # 并发控制参数
         self.max_workers = 5  # 最大并发数
         self.chunk_size = 10  # 每批处理的字幕数
+        
+        self.current_language = 'zh-cn'  # 添加当前语言属性
+        
+        # 重试设置
+        self.max_retries = 3
+        self.retry_delay = 2  # 秒
+        self.retry_backoff = 1.5  # 重试延迟增长因子
+    
+    def get_voice(self, language: str, voice_name: str = None) -> str:
+        """获取语音标识符"""
+        try:
+            language = language.lower()
+            # 将 zh-cn 映射到 zh
+            if language == 'zh-cn':
+                language = 'zh'
+            
+            if voice_name:
+                # 如果指定了具体的语音名称
+                voice_name = voice_name.lower()
+                logger.info(f"尝试使用指定语音: {voice_name}")
+                
+                if language in self.voice_map:
+                    if voice_name in self.voice_map[language]:
+                        selected_voice = self.voice_map[language][voice_name]
+                        logger.info(f"使用语音: {voice_name} ({selected_voice})")
+                        return selected_voice
+                    else:
+                        available_voices = list(self.voice_map[language].keys())
+                        logger.warning(
+                            f"指定的语音 {voice_name} 不可用，"
+                            f"可用选项: {', '.join(available_voices)}"
+                        )
+            
+            # 返回默认语音
+            default_voice = self.default_voices.get(language, 'zh-CN-XiaoxiaoNeural')
+            logger.info(f"使用默认语音: {default_voice}")
+            return default_voice
+            
+        except Exception as e:
+            logger.error(f"获取语音标识符失败: {str(e)}")
+            return 'zh-CN-XiaoxiaoNeural'  # 出错时使用默认语音
     
     def _calculate_rate(self, text: str, duration: timedelta) -> str:
         """根据字幕时间计算语速"""
@@ -87,17 +157,66 @@ class TextToSpeechService:
             logger.error(f"语速计算失败: {str(e)}")
             return "+0%"  # 出错时使用默认语速
     
-    async def _generate_audio(self, text: str, rate: str, output_path: str):
+    async def _generate_audio_with_retry(self, text: str, voice: str, rate: str, output_path: str):
+        """带重试机制的音频生成"""
+        last_error = None
+        delay = self.retry_delay
+        
+        for attempt in range(self.max_retries):
+            try:
+                if attempt > 0:
+                    logger.info(f"第 {attempt + 1} 次重试生成音频...")
+                
+                # 创建通信对象
+                communicate = Communicate(text, voice, rate=rate)
+                temp_mp3 = f"{output_path}.mp3"
+                await communicate.save(temp_mp3)
+                
+                # 如果成功生成，处理音频格式
+                audio = AudioSegment.from_mp3(temp_mp3)
+                audio = audio.set_frame_rate(self.sample_rate)
+                audio = audio.set_channels(self.channels)
+                
+                # 导出为 WAV 格式
+                audio.export(
+                    output_path,
+                    format='wav',
+                    parameters=[
+                        "-ar", str(self.sample_rate),
+                        "-ac", str(self.channels),
+                        "-acodec", "pcm_s16le"
+                    ]
+                )
+                
+                # 删除临时文件
+                if os.path.exists(temp_mp3):
+                    os.remove(temp_mp3)
+                
+                return True
+                
+            except Exception as e:
+                last_error = e
+                logger.warning(f"音频生成失败 (尝试 {attempt + 1}/{self.max_retries}): {str(e)}")
+                
+                if attempt < self.max_retries - 1:
+                    # 使用指数退避策略
+                    await asyncio.sleep(delay)
+                    delay *= self.retry_backoff
+                
+        # 所有重试都失败
+        raise Exception(f"音频生成失败，已重试 {self.max_retries} 次: {str(last_error)}")
+    
+    async def _generate_audio(self, text: str, rate: str, output_path: str, target_language: str, voice_name: str = None):
         """生成单个音频片段"""
         try:
-            voice = self.voice_map['zh']
+            voice = self.get_voice(target_language, voice_name)
             
             # 解析语速值
             rate_value = int(rate.rstrip('%').lstrip('+'))
             
             # 对较大的语速调整进行分段处理
             if abs(rate_value) > 20:
-                # 第一步：使用温和���语速调整
+                # 第一步：使用温和的语速调整
                 base_rate = f"{int(rate_value * 0.7):+d}%"
                 communicate = Communicate(text, voice, rate=base_rate)
                 
@@ -115,30 +234,8 @@ class TextToSpeechService:
                 elif remaining_adjust < 0:
                     audio = audio.speedup(playback_speed=1.0 / (1.0 - remaining_adjust))
             else:
-                # 对于温和的语速调整直接使用 edge-tts
-                communicate = Communicate(text, voice, rate=rate)
-                temp_mp3 = f"{output_path}.mp3"
-                await communicate.save(temp_mp3)
-                audio = AudioSegment.from_mp3(temp_mp3)
-            
-            # 统一处理音频格式
-            audio = audio.set_frame_rate(self.sample_rate)
-            audio = audio.set_channels(self.channels)
-            
-            # 导出为 WAV 格式
-            audio.export(
-                output_path,
-                format='wav',
-                parameters=[
-                    "-ar", str(self.sample_rate),
-                    "-ac", str(self.channels),
-                    "-acodec", "pcm_s16le"
-                ]
-            )
-            
-            # 删除临时文件
-            if os.path.exists(temp_mp3):
-                os.remove(temp_mp3)
+                # 使用重试机制生成音频
+                await self._generate_audio_with_retry(text, voice, rate, output_path)
             
             logger.info(f"音频片段生成成功: {output_path}")
             
@@ -157,7 +254,7 @@ class TextToSpeechService:
             
             # 在正确的时间点插入每个音频片段
             for seg in audio_segments:
-                # 读取音频片段
+                # ���取音频段
                 audio = AudioSegment.from_wav(seg['path'])
                 
                 # 确保音频格式一致
@@ -189,20 +286,89 @@ class TextToSpeechService:
             logger.error(f"音频合并失败: {str(e)}")
             raise
     
-    async def _generate_audio_chunk(self, subtitles: list, temp_dir: str) -> list:
+    def _smooth_rates(self, subtitles: list) -> list:
+        """平滑相邻字幕的语速差异，优先降低较快的语速"""
+        rates = []
+        
+        # 第一遍：计算初始语速
+        for subtitle in subtitles:
+            if not subtitle.content.strip():
+                rates.append("+0%")
+                continue
+            
+            rate = self._calculate_rate(subtitle.content, subtitle.end - subtitle.start)
+            rates.append(rate)
+        
+        # 第二遍：平滑处理
+        smoothed_rates = rates.copy()
+        for i in range(1, len(rates)):
+            prev_rate = int(smoothed_rates[i-1].rstrip('%').lstrip('+'))
+            curr_rate = int(rates[i].rstrip('%').lstrip('+'))
+            
+            # 计算语速差异
+            rate_diff = abs(curr_rate - prev_rate)
+            
+            # 如果差异超过阈值，调整语速
+            if rate_diff > self.max_speed_diff:
+                # 优先降低较快的语速
+                if curr_rate > prev_rate:
+                    # 当前语速更快，降低当前语速
+                    new_rate = prev_rate + self.max_speed_diff
+                    smoothed_rates[i] = f"{new_rate:+d}%"
+                    logger.info(
+                        f"平滑语速(降速): 字幕{i} "
+                        f"原始语速={curr_rate:+d}% -> "
+                        f"调整后={new_rate:+d}% "
+                        f"(前一字幕={prev_rate:+d}%)"
+                    )
+                else:
+                    # 前一个语速更快，尝试降低前一个语速
+                    new_prev_rate = curr_rate + self.max_speed_diff
+                    if new_prev_rate >= self.min_speed:
+                        smoothed_rates[i-1] = f"{new_prev_rate:+d}%"
+                        logger.info(
+                            f"平滑语速(降速): 字幕{i-1} "
+                            f"原始语速={prev_rate:+d}% -> "
+                            f"调整后={new_prev_rate:+d}% "
+                            f"(后一字幕={curr_rate:+d}%)"
+                        )
+                    else:
+                        # 如果前一个语速无法降低，才提高当前语速
+                        new_rate = prev_rate - self.max_speed_diff
+                        smoothed_rates[i] = f"{new_rate:+d}%"
+                        logger.info(
+                            f"平滑语速(升速): 字幕{i} "
+                            f"原始语速={curr_rate:+d}% -> "
+                            f"调整后={new_rate:+d}% "
+                            f"(前一字幕={prev_rate:+d}%)"
+                        )
+                
+                # 确保所有语速都在允许范围内
+                for j in range(max(0, i-1), i+1):
+                    rate_value = int(smoothed_rates[j].rstrip('%').lstrip('+'))
+                    rate_value = max(self.min_speed, min(self.max_speed, rate_value))
+                    smoothed_rates[j] = f"{rate_value:+d}%"
+        
+        return smoothed_rates
+    
+    async def _generate_audio_chunk(self, subtitles: list, temp_dir: str, target_language: str, voice_name: str = None) -> list:
         """并发生成一组音频"""
+        # 计算平滑后的语速
+        rates = self._smooth_rates(subtitles)
+        
         tasks = []
-        for i, subtitle in enumerate(subtitles):
+        for i, (subtitle, rate) in enumerate(zip(subtitles, rates)):
             if not subtitle.content.strip():
                 continue
-                
+            
             temp_path = os.path.join(temp_dir, f"temp_{subtitle.index}.wav")
-            rate = self._calculate_rate(subtitle.content, subtitle.end - subtitle.start)
             
             task = asyncio.create_task(self._generate_audio(
-                subtitle.content,
-                rate,
-                temp_path
+                text=subtitle.content,
+                rate=rate,
+                output_path=temp_path,
+                target_language=target_language,
+                voice_name=voice_name
             ))
             tasks.append((subtitle, temp_path, task))
         
@@ -223,7 +389,7 @@ class TextToSpeechService:
         
         return results
     
-    async def _process_subtitles(self, subs: list, temp_dir: str) -> list:
+    async def _process_subtitles(self, subs: list, temp_dir: str, target_language: str, voice_name: str = None) -> list:
         """分批处理字幕"""
         all_segments = []
         total_subs = len(subs)
@@ -233,7 +399,12 @@ class TextToSpeechService:
             logger.info(f"处理字幕批次 {i+1}-{min(i+self.chunk_size, total_subs)}/{total_subs}")
             
             # 并发生成这一批的音频
-            segments = await self._generate_audio_chunk(chunk, temp_dir)
+            segments = await self._generate_audio_chunk(
+                chunk, 
+                temp_dir,
+                target_language=target_language,
+                voice_name=voice_name
+            )
             all_segments.extend(segments)
             
             # 简单的速率限制
@@ -241,9 +412,15 @@ class TextToSpeechService:
         
         return all_segments
     
-    def synthesize(self, srt_path: str, target_language: str = 'zh-cn', output_path: str = None) -> str:
+    def synthesize(self, srt_path: str, target_language: str = 'zh-cn', 
+                  voice_name: str = None, output_path: str = None) -> str:
         """将字幕文件转换为语音"""
         try:
+            # 获取语音标识符
+            logger.info(f"请求语音: {voice_name or '默认'}")
+            voice = self.get_voice(target_language, voice_name)
+            logger.info(f"最终使用语音: {voice}")
+            
             # 读取字幕文件
             with open(srt_path, 'r', encoding='utf-8-sig') as f:
                 subs = list(srt.parse(f.read()))
@@ -255,7 +432,12 @@ class TextToSpeechService:
             os.makedirs(temp_dir, exist_ok=True)
             
             # 使用事件循环处理所有字幕
-            audio_segments = asyncio.run(self._process_subtitles(subs, temp_dir))
+            audio_segments = asyncio.run(self._process_subtitles(
+                subs, 
+                temp_dir,
+                target_language=target_language,
+                voice_name=voice_name
+            ))
             
             # 合并所有音频片段
             self._merge_audio_files(audio_segments, output_path)

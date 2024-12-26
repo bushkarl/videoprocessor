@@ -29,6 +29,13 @@ def main():
     parser.add_argument('input', help='输入视频文件路径')
     parser.add_argument('-o', '--output', help='输出视频文件路径')
     
+    # 添加速度参数
+    parser.add_argument('--speed', type=float, default=1.0,
+                       help='视频速度因子 (0.5-2.0, 默认1.0)')
+    
+    # 添加语音选项
+    parser.add_argument('--voice', help='指定语音 (例如: xiaoxiao, yunxi, jenny 等)')
+    
     # 处理步骤选项
     parser.add_argument('--steps', nargs='+', choices=[
         'extract_audio',    # 提取音频
@@ -44,10 +51,18 @@ def main():
     parser.add_argument('--remove-subs', action='store_true', help='移除原始字幕（默认保留）')
     parser.add_argument('--keep-temp', action='store_true', help='保留中间文件（默认删除）')
     
+    # 添加中间文件保存选项
+    parser.add_argument('--save-srt', action='store_true', 
+                       help='保存原始和翻译后的字幕文件')
+    
     # 解析命令行参数
     args = parser.parse_args()
     
     try:
+        # 验证速度参数
+        if not 0.5 <= args.speed <= 2.0:
+            raise ValueError("速度因子必须在 0.5 到 2.0 之间")
+        
         # 验证输入文件存在
         if not os.path.exists(args.input):
             raise FileNotFoundError(f"输入文件不存在: {args.input}")
@@ -61,6 +76,9 @@ def main():
         processor = VideoProcessor()
         processor.remove_original_subs = args.remove_subs
         processor.keep_temp_files = args.keep_temp
+        processor.voice_name = args.voice  # 保存语音选择
+        processor.speed_factor = args.speed  # 设置速度因子
+        processor.save_intermediate = args.save_srt  # 设置是否保存中间文件
         
         # 设置输出路径
         final_output = args.output
@@ -149,7 +167,7 @@ def main():
                     args.input,
                     no_subs_path
                 )
-                logger.info(f"字幕���除完成: {results['no_subs_video']}")
+                logger.info(f"字幕移除完成: {results['no_subs_video']}")
             
             if 'compose' in args.steps:
                 if 'dubbed_audio' not in results or 'translated_srt' not in results:
